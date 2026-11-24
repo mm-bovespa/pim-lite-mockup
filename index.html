@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PIM Lite — HCL Commerce Catalog Browser</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .tree-item { transition: background 0.15s; }
+    .panel-enter { animation: slideIn 0.25s ease-out; }
+    @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    .skeleton { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased h-screen overflow-hidden">
+
+<!-- App Shell -->
+<div class="flex h-screen">
+
+  <!-- Sidebar -->
+  <aside class="w-72 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
+    <!-- Catalog Selector -->
+    <div class="p-4 border-b border-slate-200">
+      <label class="block text-xs font-medium text-slate-500 mb-1.5">Master Catalog</label>
+      <select id="catalogSelect" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+        <option value="de">Master Catalog – Germany (715845184)</option>
+        <option value="au">Master Catalog – Australia (715838634)</option>
+        <option value="global">Master Catalog – Global</option>
+      </select>
+    </div>
+
+    <!-- Category Tree -->
+    <div class="flex-1 overflow-y-auto scrollbar-thin p-3">
+      <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-2">Categories</div>
+      <div id="categoryTree"></div>
+    </div>
+
+    <!-- Sidebar footer -->
+    <div class="p-3 border-t border-slate-200 text-xs text-slate-400">
+      PIM Lite v0.9 · HCL Commerce
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col min-w-0">
+    <!-- Top Bar -->
+    <header class="h-14 bg-white border-b border-slate-200 flex items-center px-6 gap-4 flex-shrink-0">
+      <!-- Breadcrumb -->
+      <div id="breadcrumb" class="flex items-center text-sm text-slate-500 min-w-0 flex-1"></div>
+
+      <!-- Search -->
+      <div class="relative w-80">
+        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input id="searchInput" type="text" placeholder="Search name or SKU…  (/)" class="w-full pl-9 pr-8 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none" />
+        <button id="clearSearch" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 hidden">✕</button>
+      </div>
+
+      <!-- Language -->
+      <div class="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 text-xs font-medium">
+        <button id="langEN" class="px-2.5 py-1 rounded-md bg-white shadow-sm text-slate-800">EN</button>
+        <button id="langDE" class="px-2.5 py-1 rounded-md text-slate-500 hover:text-slate-700">DE</button>
+      </div>
+    </header>
+
+    <!-- Product List -->
+    <div class="flex-1 overflow-auto scrollbar-thin p-6">
+      <div id="productListContainer" class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 text-left">
+            <tr>
+              <th class="px-4 py-3 font-medium">Part Number</th>
+              <th class="px-4 py-3 font-medium">Name</th>
+              <th class="px-4 py-3 font-medium">Type</th>
+              <th class="px-4 py-3 font-medium">Short Description</th>
+              <th class="px-4 py-3 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody id="productTableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+        <div id="emptyState" class="hidden py-20 text-center text-slate-400">
+          <div class="text-4xl mb-3">📦</div>
+          <div>No products match your filters</div>
+        </div>
+        <div id="loadingState" class="hidden p-4 space-y-3">
+          <div class="skeleton h-10 rounded"></div>
+          <div class="skeleton h-10 rounded"></div>
+          <div class="skeleton h-10 rounded"></div>
+        </div>
+      </div>
+
+      <!-- Pagination -->
+      <div id="pagination" class="flex items-center justify-between mt-4 text-sm text-slate-500"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Product Detail Slide-over -->
+<div id="detailOverlay" class="fixed inset-0 bg-black/20 hidden z-40"></div>
+<div id="detailPanel" class="fixed top-0 right-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 transform translate-x-full transition-transform duration-300 flex flex-col">
+  <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+    <h2 class="font-semibold text-lg">Product Details</h2>
+    <button id="closeDetail" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+  </div>
+  <div id="detailContent" class="flex-1 overflow-y-auto scrollbar-thin p-6"></div>
+</div>
+
+<script>
+// ==================== MOCK DATA ====================
+const CATALOGS = {
+  de: {
+    id: "715845184",
+    name: "Master Catalog – Germany",
+    categories: [
+      { id: "apparel", name: "Apparel", children: [
+        { id: "shirts", name: "Shirts", children: [
+          { id: "ss26", name: "SS26 Collection" },
+          { id: "basics", name: "Basics" }
+        ]},
+        { id: "pants", name: "Pants" }
+      ]},
+      { id: "footwear", name: "Footwear", children: [
+        { id: "sneakers", name: "Sneakers" },
+        { id: "boots", name: "Boots" }
+      ]},
+      { id: "accessories", name: "Accessories" }
+    ]
+  },
+  au: {
+    id: "715838634",
+    name: "Master Catalog – Australia",
+    categories: [
+      { id: "apparel", name: "Apparel", children: [
+        { id: "shirts", name: "Shirts" },
+        { id: "shorts", name: "Shorts" }
+      ]},
+      { id: "footwear", name: "Footwear", children: [
+        { id: "sneakers", name: "Sneakers" }
+      ]}
+    ]
+  },
+  global: {
+    id: "global",
+    name: "Master Catalog – Global",
+    categories: [
+      { id: "apparel", name: "Apparel", children: [
+        { id: "shirts", name: "Shirts", children: [
+          { id: "ss26", name: "SS26 Collection" },
+          { id: "basics", name: "Basics" }
+        ]},
+        { id: "pants", name: "Pants" }
+      ]},
+      { id: "footwear", name: "Footwear", children: [
+        { id: "sneakers", name: "Sneakers" }
+      ]},
+      { id: "equipment", name: "Equipment" }
+    ]
+  }
+};
+
+const PRODUCTS = [
+  { sku: "SHIRT-SS26-001", type: "Product", category: "ss26", status: "Published",
+    en: { name: "Classic Oxford Shirt", short: "Crisp cotton oxford in light blue", long: "Timeless button-down oxford crafted from premium long-staple cotton. Perfect for office or weekend." },
+    de: { name: "Klassisches Oxford-Hemd", short: "Knackiges Baumwoll-Oxford in Hellblau", long: "Zeitloses Button-Down-Hemd aus hochwertiger Langstapel-Baumwolle. Ideal für Büro oder Wochenende." },
+    attributes: { Color: "Light Blue", Size: "M", Material: "100% Cotton", Gender: "Unisex", Season: "SS26" },
+    children: ["SHIRT-SS26-001-S", "SHIRT-SS26-001-M", "SHIRT-SS26-001-L"] },
+  { sku: "SHIRT-SS26-002", type: "Product", category: "ss26", status: "Published",
+    en: { name: "Linen Blend Camp Shirt", short: "Relaxed linen-cotton blend", long: "Breathable camp collar shirt ideal for warm weather." },
+    de: { name: "Leinen-Mix Camp-Shirt", short: "Entspannter Leinen-Baumwoll-Mix", long: "Atmungsaktives Camp-Kragen-Shirt ideal für warmes Wetter." },
+    attributes: { Color: "Sand", Size: "L", Material: "55% Linen / 45% Cotton", Gender: "Men", Season: "SS26" },
+    children: ["SHIRT-SS26-002-M", "SHIRT-SS26-002-L", "SHIRT-SS26-002-XL"] },
+  { sku: "SHIRT-BASIC-001", type: "Product", category: "basics", status: "Published",
+    en: { name: "Essential Crew Neck Tee", short: "Everyday soft jersey tee", long: "The perfect everyday tee made from organic cotton jersey." },
+    de: { name: "Essentielles Rundhals-Shirt", short: "Alltags-Soft-Jersey-Shirt", long: "Das perfekte Alltags-Shirt aus Bio-Baumwoll-Jersey." },
+    attributes: { Color: "White", Size: "M", Material: "Organic Cotton", Gender: "Unisex", Season: "All" },
+    children: ["SHIRT-BASIC-001-S", "SHIRT-BASIC-001-M", "SHIRT-BASIC-001-L"] },
+  { sku: "SHIRT-BASIC-002", type: "Item", category: "basics", status: "Published",
+    en: { name: "Essential Crew Neck Tee – Black", short: "Black version of the essential tee", long: "Same soft organic jersey in classic black." },
+    de: { name: "Essentielles Rundhals-Shirt – Schwarz", short: "Schwarze Version des Essential Tees", long: "Dasselbe weiche Bio-Jersey in klassischem Schwarz." },
+    attributes: { Color: "Black", Size: "M", Material: "Organic Cotton", Gender: "Unisex", Season: "All" },
+    children: [] },
+  { sku: "PANT-CHINO-001", type: "Product", category: "pants", status: "Published",
+    en: { name: "Slim Fit Chino", short: "Tailored cotton chino", long: "Modern slim chino with stretch for comfort." },
+    de: { name: "Slim-Fit Chino", short: "Maßgeschneiderte Baumwoll-Chino", long: "Moderne Slim-Chino mit Stretch für Komfort." },
+    attributes: { Color: "Navy", Size: "32", Material: "Cotton Twill", Gender: "Men", Season: "All" },
+    children: ["PANT-CHINO-001-30", "PANT-CHINO-001-32", "PANT-CHINO-001-34"] },
+  { sku: "PANT-JOGGER-001", type: "Product", category: "pants", status: "Published",
+    en: { name: "Tech Jogger", short: "Performance jogger with pockets", long: "Lightweight technical jogger perfect for travel." },
+    de: { name: "Tech Jogger", short: "Performance-Jogger mit Taschen", long: "Leichter technischer Jogger ideal für Reisen." },
+    attributes: { Color: "Olive", Size: "M", Material: "Recycled Polyester", Gender: "Unisex", Season: "All" },
+    children: ["PANT-JOGGER-001-S", "PANT-JOGGER-001-M", "PANT-JOGGER-001-L"] },
+  { sku: "VPR-RUN-42", type: "Product", category: "sneakers", status: "Published",
+    en: { name: "Vapor Run 42", short: "Lightweight daily trainer", long: "Responsive cushioning and breathable mesh upper." },
+    de: { name: "Vapor Run 42", short: "Leichter Daily Trainer", long: "Responsive Dämpfung und atmungsaktives Mesh-Obermaterial." },
+    attributes: { Color: "White/Black", Size: "42", Material: "Mesh + EVA", Gender: "Unisex", Season: "SS26" },
+    children: ["VPR-RUN-40", "VPR-RUN-41", "VPR-RUN-42", "VPR-RUN-43"] },
+  { sku: "VPR-RUN-41", type: "Item", category: "sneakers", status: "Published",
+    en: { name: "Vapor Run – Size 41", short: "Size 41 of Vapor Run", long: "EU size 41." },
+    de: { name: "Vapor Run – Größe 41", short: "Größe 41 des Vapor Run", long: "EU-Größe 41." },
+    attributes: { Color: "White/Black", Size: "41", Material: "Mesh + EVA", Gender: "Unisex", Season: "SS26" },
+    children: [] },
+  { sku: "BOOT-HIKER-001", type: "Product", category: "boots", status: "Published",
+    en: { name: "Trail Hiker Boot", short: "Waterproof hiking boot", long: "Rugged yet comfortable boot with Gore-Tex lining." },
+    de: { name: "Trail Hiker Boot", short: "Wasserdichter Wanderstiefel", long: "Robuster und bequemer Stiefel mit Gore-Tex-Futter." },
+    attributes: { Color: "Brown", Size: "43", Material: "Leather + Gore-Tex", Gender: "Men", Season: "All" },
+    children: ["BOOT-HIKER-001-42", "BOOT-HIKER-001-43", "BOOT-HIKER-001-44"] },
+  { sku: "ACC-BELT-001", type: "Product", category: "accessories", status: "Published",
+    en: { name: "Leather Belt", short: "Full-grain leather belt", long: "Classic full-grain leather belt with brushed buckle." },
+    de: { name: "Ledergürtel", short: "Vollnarbleder-Gürtel", long: "Klassischer Vollnarbleder-Gürtel mit gebürsteter Schnalle." },
+    attributes: { Color: "Brown", Size: "34", Material: "Full-grain Leather", Gender: "Men", Season: "All" },
+    children: ["ACC-BELT-001-32", "ACC-BELT-001-34", "ACC-BELT-001-36"] },
+  { sku: "SHIRT-SS26-003", type: "Product", category: "ss26", status: "Published",
+    en: { name: "Striped Poplin Shirt", short: "Fine stripe poplin", long: "Elegant fine stripe button-up." },
+    de: { name: "Gestreiftes Popeline-Hemd", short: "Feiner Streifen-Popeline", long: "Elegantes fein gestreiftes Button-up." },
+    attributes: { Color: "Navy/White", Size: "L", Material: "Cotton Poplin", Gender: "Men", Season: "SS26" },
+    children: ["SHIRT-SS26-003-M", "SHIRT-SS26-003-L"] },
+  { sku: "SHIRT-BASIC-003", type: "Product", category: "basics", status: "Published",
+    en: { name: "Heavyweight Tee", short: "Thick jersey tee", long: "Premium heavyweight cotton for durability." },
+    de: { name: "Schweres T-Shirt", short: "Dickes Jersey-Shirt", long: "Premium schwere Baumwolle für Langlebigkeit." },
+    attributes: { Color: "Heather Grey", Size: "L", Material: "Heavy Cotton", Gender: "Unisex", Season: "All" },
+    children: ["SHIRT-BASIC-003-M", "SHIRT-BASIC-003-L", "SHIRT-BASIC-003-XL"] },
+  { sku: "PANT-CARGO-001", type: "Product", category: "pants", status: "Published",
+    en: { name: "Utility Cargo Pants", short: "Multi-pocket cargo", long: "Functional cargo with reinforced knees." },
+    de: { name: "Utility Cargo Hose", short: "Mehrfach-Taschen Cargo", long: "Funktionale Cargo mit verstärkten Knien." },
+    attributes: { Color: "Khaki", Size: "34", Material: "Cotton Canvas", Gender: "Men", Season: "All" },
+    children: ["PANT-CARGO-001-32", "PANT-CARGO-001-34", "PANT-CARGO-001-36"] },
+  { sku: "SNK-CLASSIC-001", type: "Product", category: "sneakers", status: "Published",
+    en: { name: "Classic Court Sneaker", short: "Timeless leather court shoe", long: "Minimal leather sneaker with gum sole." },
+    de: { name: "Classic Court Sneaker", short: "Zeitloser Leder-Court-Schuh", long: "Minimaler Leder-Sneaker mit Gummisohle." },
+    attributes: { Color: "White", Size: "42", Material: "Leather", Gender: "Unisex", Season: "All" },
+    children: ["SNK-CLASSIC-001-41", "SNK-CLASSIC-001-42", "SNK-CLASSIC-001-43"] },
+  { sku: "SHORT-LINEN-001", type: "Product", category: "shorts", status: "Published",
+    en: { name: "Linen Short", short: "Relaxed linen short", long: "Breathable linen short for summer." },
+    de: { name: "Leinen Short", short: "Entspannte Leinen-Short", long: "Atmungsaktive Leinen-Short für den Sommer." },
+    attributes: { Color: "Beige", Size: "32", Material: "Linen", Gender: "Men", Season: "SS26" },
+    children: ["SHORT-LINEN-001-30", "SHORT-LINEN-001-32"] },
+  { sku: "EQUIP-BOTTLE-001", type: "Product", category: "equipment", status: "Published",
+    en: { name: "Insulated Bottle 750ml", short: "Stainless steel bottle", long: "Keeps drinks cold for 24h." },
+    de: { name: "Isolierflasche 750ml", short: "Edelstahlflasche", long: "Hält Getränke 24h kalt." },
+    attributes: { Color: "Matte Black", Size: "750ml", Material: "Stainless Steel", Gender: "Unisex", Season: "All" },
+    children: [] },
+  // Additional products to reach ~30
+  { sku: "SHIRT-SS26-004", type: "Product", category: "ss26", status: "Published",
+    en: { name: "Overshirt Denim", short: "Light wash denim overshirt", long: "Versatile denim layering piece." },
+    de: { name: "Overshirt Denim", short: "Hell gewaschenes Denim-Overshirt", long: "Vielseitiges Denim-Layering-Stück." },
+    attributes: { Color: "Light Wash", Size: "L", Material: "Denim", Gender: "Men", Season: "SS26" },
+    children: ["SHIRT-SS26-004-M", "SHIRT-SS26-004-L"] },
+  { sku: "SHIRT-BASIC-004", type: "Product", category: "basics", status: "Published",
+    en: { name: "Polo Shirt", short: "Classic pique polo", long: "Timeless polo in breathable pique." },
+    de: { name: "Polo-Shirt", short: "Klassisches Piqué-Polo", long: "Zeitloses Polo aus atmungsaktivem Piqué." },
+    attributes: { Color: "Navy", Size: "M", Material: "Cotton Pique", Gender: "Men", Season: "All" },
+    children: ["SHIRT-BASIC-004-S", "SHIRT-BASIC-004-M", "SHIRT-BASIC-004-L"] },
+  { sku: "PANT-DENIM-001", type: "Product", category: "pants", status: "Published",
+    en: { name: "Straight Denim", short: "Classic straight jeans", long: "Comfortable straight-leg denim." },
+    de: { name: "Straight Denim", short: "Klassische Straight Jeans", long: "Bequeme Straight-Leg-Denim." },
+    attributes: { Color: "Indigo", Size: "32", Material: "Denim", Gender: "Men", Season: "All" },
+    children: ["PANT-DENIM-001-30", "PANT-DENIM-001-32", "PANT-DENIM-001-34"] },
+  { sku: "SNK-RUN-002", type: "Product", category: "sneakers", status: "Published",
+    en: { name: "Road Runner Pro", short: "High-mileage runner", long: "Maximum cushion for long runs." },
+    de: { name: "Road Runner Pro", short: "High-Mileage Läufer", long: "Maximale Dämpfung für lange Läufe." },
+    attributes: { Color: "Grey/Neon", Size: "43", Material: "Engineered Mesh", Gender: "Unisex", Season: "SS26" },
+    children: ["SNK-RUN-002-42", "SNK-RUN-002-43", "SNK-RUN-002-44"] },
+  { sku: "BOOT-CHELSEA-001", type: "Product", category: "boots", status: "Published",
+    en: { name: "Chelsea Boot", short: "Sleek leather chelsea", long: "Elegant pull-on chelsea boot." },
+    de: { name: "Chelsea Boot", short: "Schlanker Leder-Chelsea", long: "Eleganter Slip-on Chelsea-Stiefel." },
+    attributes: { Color: "Black", Size: "42", Material: "Leather", Gender: "Men", Season: "All" },
+    children: ["BOOT-CHELSEA-001-41", "BOOT-CHELSEA-001-42"] },
+  { sku: "ACC-CAP-001", type: "Product", category: "accessories", status: "Published",
+    en: { name: "Dad Cap", short: "Washed cotton cap", long: "Relaxed washed dad cap." },
+    de: { name: "Dad Cap", short: "Gewaschene Baumwollkappe", long: "Entspannte gewaschene Dad Cap." },
+    attributes: { Color: "Stone", Size: "One Size", Material: "Cotton", Gender: "Unisex", Season: "All" },
+    children: [] },
+  { sku: "SHIRT-SS26-005", type: "Product", category: "ss26", status: "Published",
+    en: { name: "Cuban Collar Shirt", short: "Relaxed cuban collar", long: "Vacation-ready cuban collar shirt." },
+    de: { name: "Cuban Kragen Hemd", short: "Entspannter Cuban-Kragen", long: "Urlaubsbereites Cuban-Kragen-Hemd." },
+    attributes: { Color: "Sage", Size: "M", Material: "Viscose Blend", Gender: "Men", Season: "SS26" },
+    children: ["SHIRT-SS26-005-S", "SHIRT-SS26-005-M", "SHIRT-SS26-005-L"] },
+  { sku: "SHORT-CARGO-001", type: "Product", category: "shorts", status: "Published",
+    en: { name: "Cargo Short", short: "Utility cargo short", long: "Practical cargo short with multiple pockets." },
+    de: { name: "Cargo Short", short: "Utility Cargo Short", long: "Praktische Cargo Short mit mehreren Taschen." },
+    attributes: { Color: "Olive", Size: "32", Material: "Cotton", Gender: "Men", Season: "SS26" },
+    children: ["SHORT-CARGO-001-30", "SHORT-CARGO-001-32", "SHORT-CARGO-001-34"] },
+  { sku: "EQUIP-TOWEL-001", type: "Product", category: "equipment", status: "Published",
+    en: { name: "Quick-Dry Towel", short: "Microfiber travel towel", long: "Ultra-compact quick-dry towel." },
+    de: { name: "Schnelltrocknendes Handtuch", short: "Mikrofaser Reisehandtuch", long: "Ultra-kompaktes schnelltrocknendes Handtuch." },
+    attributes: { Color: "Blue", Size: "M", Material: "Microfiber", Gender: "Unisex", Season: "All" },
+    children: [] },
+  { sku: "SHIRT-BASIC-005", type: "Item", category: "basics", status: "Published",
+    en: { name: "Essential Tee – Navy", short: "Navy essential tee", long: "Navy colorway of the essential tee." },
+    de: { name: "Essentielles Shirt – Navy", short: "Navy Essential Tee", long: "Navy-Farbvariante des Essential Tees." },
+    attributes: { Color: "Navy", Size: "L", Material: "Organic Cotton", Gender: "Unisex", Season: "All" },
+    children: [] },
+  { sku: "PANT-CHINO-002", type: "Product", category: "pants", status: "Published",
+    en: { name: "Relaxed Chino", short: "Comfortable relaxed chino", long: "Easier fit chino for everyday." },
+    de: { name: "Relaxed Chino", short: "Bequeme Relaxed Chino", long: "Lockerere Chino für den Alltag." },
+    attributes: { Color: "Stone", Size: "34", Material: "Cotton", Gender: "Men", Season: "All" },
+    children: ["PANT-CHINO-002-32", "PANT-CHINO-002-34"] },
+  { sku: "SNK-LIFESTYLE-001", type: "Product", category: "sneakers", status: "Published",
+    en: { name: "Lifestyle Sneaker", short: "Clean lifestyle shoe", long: "Minimal lifestyle sneaker for casual wear." },
+    de: { name: "Lifestyle Sneaker", short: "Sauberer Lifestyle-Schuh", long: "Minimaler Lifestyle-Sneaker für den Casual-Look." },
+    attributes: { Color: "Off-White", Size: "42", Material: "Leather/Suede", Gender: "Unisex", Season: "All" },
+    children: ["SNK-LIFESTYLE-001-41", "SNK-LIFESTYLE-001-42", "SNK-LIFESTYLE-001-43"] },
+  { sku: "ACC-SOCKS-001", type: "Product", category: "accessories", status: "Published",
+    en: { name: "Crew Socks 3-Pack", short: "Everyday crew socks", long: "Comfortable cotton blend crew socks." },
+    de: { name: "Crew Socken 3er-Pack", short: "Alltags-Crew-Socken", long: "Bequeme Baumwollmix-Crew-Socken." },
+    attributes: { Color: "Mixed", Size: "M", Material: "Cotton Blend", Gender: "Unisex", Season: "All" },
+    children: [] },
+  { sku: "BOOT-HIKER-002", type: "Item", category: "boots", status: "Published",
+    en: { name: "Trail Hiker – Size 42", short: "Size 42 hiker", long: "EU 42." },
+    de: { name: "Trail Hiker – Größe 42", short: "Größe 42 Hiker", long: "EU 42." },
+    attributes: { Color: "Brown", Size: "42", Material: "Leather + Gore-Tex", Gender: "Men", Season: "All" },
+    children: [] }
+];
+
+// ==================== STATE ====================
+let currentCatalog = "de";
+let currentCategory = null; // null = all
+let currentLang = "en";
+let searchTerm = "";
+let currentPage = 1;
+const PAGE_SIZE = 12;
+let selectedProduct = null;
+
+// ==================== HELPERS ====================
+function getCategoryName(id) {
+  function find(cats) {
+    for (const c of cats) {
+      if (c.id === id) return c.name;
+      if (c.children) {
+        const found = find(c.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  return find(CATALOGS[currentCatalog].categories) || id;
+}
+
+function countProductsInCategory(catId) {
+  if (!catId) return PRODUCTS.length;
+  // Include children
+  const allIds = new Set();
+  function collect(cats) {
+    for (const c of cats) {
+      allIds.add(c.id);
+      if (c.children) collect(c.children);
+    }
+  }
+  function findAndCollect(cats, target) {
+    for (const c of cats) {
+      if (c.id === target) {
+        allIds.add(c.id);
+        if (c.children) collect(c.children);
+        return true;
+      }
+      if (c.children && findAndCollect(c.children, target)) return true;
+    }
+    return false;
+  }
+  findAndCollect(CATALOGS[currentCatalog].categories, catId);
+  return PRODUCTS.filter(p => allIds.has(p.category)).length;
+}
+
+function getFilteredProducts() {
+  let list = PRODUCTS;
+  if (currentCategory) {
+    const allIds = new Set();
+    function collect(cats) {
+      for (const c of cats) {
+        allIds.add(c.id);
+        if (c.children) collect(c.children);
+      }
+    }
+    function findAndCollect(cats, target) {
+      for (const c of cats) {
+        if (c.id === target) {
+          allIds.add(c.id);
+          if (c.children) collect(c.children);
+          return true;
+        }
+        if (c.children && findAndCollect(c.children, target)) return true;
+      }
+      return false;
+    }
+    findAndCollect(CATALOGS[currentCatalog].categories, currentCategory);
+    list = list.filter(p => allIds.has(p.category));
+  }
+  if (searchTerm) {
+    const q = searchTerm.toLowerCase();
+    list = list.filter(p => 
+      p.sku.toLowerCase().includes(q) ||
+      p[currentLang].name.toLowerCase().includes(q)
+    );
+  }
+  return list;
+}
+
+// ==================== RENDER ====================
+function renderTree() {
+  const tree = document.getElementById("categoryTree");
+  tree.innerHTML = "";
+  function renderNodes(nodes, depth = 0) {
+    nodes.forEach(node => {
+      const count = countProductsInCategory(node.id);
+      const hasChildren = node.children && node.children.length;
+      const isOpen = node._open !== false; // default open
+      const div = document.createElement("div");
+      div.className = "tree-item";
+      div.innerHTML = `
+        <div class="flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-slate-100 cursor-pointer ${currentCategory === node.id ? 'bg-brand-50 text-brand-700 font-medium' : ''}" data-id="${node.id}" style="padding-left: ${8 + depth * 16}px">
+          ${hasChildren ? `<span class="toggle w-4 text-center text-slate-400">${isOpen ? '▾' : '▸'}</span>` : '<span class="w-4"></span>'}
+          <span class="flex-1 truncate text-sm">${node.name}</span>
+          <span class="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">${count}</span>
+        </div>
+      `;
+      const row = div.querySelector("[data-id]");
+      row.onclick = (e) => {
+        if (e.target.classList.contains("toggle")) {
+          node._open = !isOpen;
+          renderTree();
+          return;
+        }
+        currentCategory = node.id;
+        currentPage = 1;
+        renderAll();
+      };
+      tree.appendChild(div);
+      if (hasChildren && isOpen) {
+        renderNodes(node.children, depth + 1);
+      }
+    });
+  }
+  // All products option
+  const allDiv = document.createElement("div");
+  allDiv.innerHTML = `
+    <div class="flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-slate-100 cursor-pointer ${!currentCategory ? 'bg-brand-50 text-brand-700 font-medium' : ''}" data-id="all">
+      <span class="w-4"></span>
+      <span class="flex-1 text-sm">All Products</span>
+      <span class="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">${PRODUCTS.length}</span>
+    </div>`;
+  allDiv.querySelector("[data-id]").onclick = () => { currentCategory = null; currentPage = 1; renderAll(); };
+  tree.appendChild(allDiv);
+  renderNodes(CATALOGS[currentCatalog].categories);
+}
+
+function renderBreadcrumb() {
+  const bc = document.getElementById("breadcrumb");
+  const cat = CATALOGS[currentCatalog];
+  let html = `<span class="font-medium text-slate-700">${cat.name}</span>`;
+  if (currentCategory) {
+    html += ` <span class="mx-1">/</span> <span>${getCategoryName(currentCategory)}</span>`;
+  }
+  bc.innerHTML = html;
+}
+
+function renderProducts() {
+  const list = getFilteredProducts();
+  const total = list.length;
+  const pages = Math.ceil(total / PAGE_SIZE) || 1;
+  if (currentPage > pages) currentPage = pages;
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pageItems = list.slice(start, start + PAGE_SIZE);
+
+  const tbody = document.getElementById("productTableBody");
+  const empty = document.getElementById("emptyState");
+  const loading = document.getElementById("loadingState");
+  loading.classList.add("hidden");
+
+  if (pageItems.length === 0) {
+    tbody.innerHTML = "";
+    empty.classList.remove("hidden");
+  } else {
+    empty.classList.add("hidden");
+    tbody.innerHTML = pageItems.map(p => `
+      <tr class="hover:bg-slate-50 cursor-pointer transition-colors" data-sku="${p.sku}">
+        <td class="px-4 py-3 font-mono text-xs text-slate-600">${p.sku}</td>
+        <td class="px-4 py-3 font-medium">${p[currentLang].name}</td>
+        <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded-full ${p.type === 'Product' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">${p.type}</span></td>
+        <td class="px-4 py-3 text-slate-500 truncate max-w-xs">${p[currentLang].short}</td>
+        <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">${p.status}</span></td>
+      </tr>
+    `).join("");
+    tbody.querySelectorAll("tr").forEach(tr => {
+      tr.onclick = () => openDetail(tr.dataset.sku);
+    });
+  }
+
+  // Pagination
+  const pag = document.getElementById("pagination");
+  pag.innerHTML = `
+    <div>Showing ${start + 1}–${Math.min(start + PAGE_SIZE, total)} of ${total}</div>
+    <div class="flex gap-1">
+      <button ${currentPage === 1 ? 'disabled' : ''} class="px-3 py-1 rounded border ${currentPage === 1 ? 'opacity-40' : 'hover:bg-slate-100'}" onclick="changePage(${currentPage - 1})">Previous</button>
+      <button ${currentPage === pages ? 'disabled' : ''} class="px-3 py-1 rounded border ${currentPage === pages ? 'opacity-40' : 'hover:bg-slate-100'}" onclick="changePage(${currentPage + 1})">Next</button>
+    </div>
+  `;
+}
+
+function openDetail(sku) {
+  const p = PRODUCTS.find(x => x.sku === sku);
+  if (!p) return;
+  selectedProduct = p;
+  const content = document.getElementById("detailContent");
+  const attrs = Object.entries(p.attributes).map(([k, v]) => `
+    <div class="flex justify-between py-2 border-b border-slate-100 text-sm">
+      <span class="text-slate-500">${k}</span>
+      <span class="font-medium">${v}</span>
+    </div>
+  `).join("");
+  const children = p.children.length ? p.children.map(c => `<span class="inline-block bg-slate-100 text-xs px-2 py-1 rounded mr-1 mb-1 font-mono">${c}</span>`).join("") : '<span class="text-slate-400 text-sm">No child SKUs</span>';
+
+  content.innerHTML = `
+    <div class="flex gap-6 mb-6">
+      <div class="w-40 h-40 bg-slate-100 rounded-xl flex items-center justify-center text-4xl text-slate-300 flex-shrink-0">📦</div>
+      <div class="min-w-0">
+        <div class="text-xs font-mono text-slate-400 mb-1">${p.sku}</div>
+        <h3 class="text-xl font-semibold mb-2">${p[currentLang].name}</h3>
+        <p class="text-slate-600 mb-3">${p[currentLang].short}</p>
+        <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">${p.status}</span>
+        <span class="ml-2 text-xs px-2 py-0.5 rounded-full ${p.type === 'Product' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">${p.type}</span>
+      </div>
+    </div>
+    <div class="mb-6">
+      <h4 class="font-medium mb-2">Long Description</h4>
+      <p class="text-sm text-slate-600 leading-relaxed">${p[currentLang].long}</p>
+    </div>
+    <div class="mb-6">
+      <h4 class="font-medium mb-3">Attributes</h4>
+      <div class="bg-slate-50 rounded-lg px-4">${attrs}</div>
+    </div>
+    <div>
+      <h4 class="font-medium mb-3">Related Items / SKUs</h4>
+      <div>${children}</div>
+    </div>
+  `;
+  document.getElementById("detailPanel").classList.remove("translate-x-full");
+  document.getElementById("detailOverlay").classList.remove("hidden");
+}
+
+function closeDetail() {
+  document.getElementById("detailPanel").classList.add("translate-x-full");
+  document.getElementById("detailOverlay").classList.add("hidden");
+}
+
+function changePage(page) {
+  currentPage = page;
+  renderProducts();
+}
+
+function renderAll() {
+  renderTree();
+  renderBreadcrumb();
+  renderProducts();
+}
+
+// ==================== EVENTS ====================
+document.getElementById("catalogSelect").onchange = (e) => {
+  currentCatalog = e.target.value;
+  currentCategory = null;
+  currentPage = 1;
+  // Simulate loading
+  document.getElementById("loadingState").classList.remove("hidden");
+  document.getElementById("productTableBody").innerHTML = "";
+  setTimeout(() => renderAll(), 300);
+};
+
+document.getElementById("searchInput").oninput = (e) => {
+  searchTerm = e.target.value;
+  document.getElementById("clearSearch").classList.toggle("hidden", !searchTerm);
+  currentPage = 1;
+  renderProducts();
+};
+document.getElementById("clearSearch").onclick = () => {
+  document.getElementById("searchInput").value = "";
+  searchTerm = "";
+  document.getElementById("clearSearch").classList.add("hidden");
+  currentPage = 1;
+  renderProducts();
+};
+
+document.getElementById("langEN").onclick = () => {
+  currentLang = "en";
+  document.getElementById("langEN").className = "px-2.5 py-1 rounded-md bg-white shadow-sm text-slate-800";
+  document.getElementById("langDE").className = "px-2.5 py-1 rounded-md text-slate-500 hover:text-slate-700";
+  renderProducts();
+  if (selectedProduct) openDetail(selectedProduct.sku);
+};
+document.getElementById("langDE").onclick = () => {
+  currentLang = "de";
+  document.getElementById("langDE").className = "px-2.5 py-1 rounded-md bg-white shadow-sm text-slate-800";
+  document.getElementById("langEN").className = "px-2.5 py-1 rounded-md text-slate-500 hover:text-slate-700";
+  renderProducts();
+  if (selectedProduct) openDetail(selectedProduct.sku);
+};
+
+document.getElementById("closeDetail").onclick = closeDetail;
+document.getElementById("detailOverlay").onclick = closeDetail;
+
+// Keyboard shortcut
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement.tagName !== "INPUT") {
+    e.preventDefault();
+    document.getElementById("searchInput").focus();
+  }
+  if (e.key === "Escape") closeDetail();
+});
+
+// Init
+renderAll();
+</script>
+</body>
+</html>
